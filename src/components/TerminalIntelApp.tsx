@@ -1,36 +1,46 @@
 "use client";
 
 import { useDeferredValue, useEffect, useMemo, useState, useTransition } from "react";
-import type { AiFocus, IntelItem, IntelResponse, NewsType, ResourceCategory } from "@/lib/intel";
-
-const focusOptions: AiFocus[] = ["All", "Codex", "Claude", "OpenAI", "Anthropic", "Agents", "DevTools"];
-const typeOptions: NewsType[] = [
-  "All",
-  "Model Releases",
-  "API Changes",
-  "Coding Agents",
-  "Benchmarks",
-  "Security",
-  "Research",
-  "Pricing",
-];
+import {
+  focusFilterOptions,
+  formatWindowLabel,
+  newsTypeOptions,
+  resourceCategoryOptions,
+  windowDayOptions,
+  type AiFocus,
+  type IntelItem,
+  type IntelResponse,
+  type NewsType,
+  type ResourceCategory,
+} from "@/lib/intel";
 
 const sourceOptions = ["All", "Reddit", "Hacker News", "GitHub"] as const;
 type SourceFilter = (typeof sourceOptions)[number];
-const categoryOptions: ResourceCategory[] = [
-  "All",
-  "News",
-  "Projects",
-  "Skills",
-  "Useful Tools",
-  "Useful Tricks",
-  "Guides",
-  "Prompts",
-  "Workflows",
-];
 
-const defaultCommand = "filter: last24 source:reddit,hn,github impact:high";
-const manualWatchlist = ["Codex CLI", "Claude Code", "MCP servers", "Responses API", "SWE-bench", "rate limits"];
+function windowCommandToken(days: number) {
+  return days === 1 ? "last24" : `last${days}d`;
+}
+
+function defaultCommandForWindow(days: number) {
+  return `filter: window:${windowCommandToken(days)} source:reddit,hn,github impact:high`;
+}
+
+function isGeneratedWindowCommand(value: string) {
+  return /^filter:\s+window:last(?:24|\d+d)\s+source:reddit,hn,github\s+impact:high$/i.test(value.trim());
+}
+
+const manualWatchlist = [
+  "Codex CLI",
+  "Codex Desktop",
+  "OpenClaw Gateway",
+  "ClawHub",
+  "MoltBot",
+  "Claude Code",
+  "MCP servers",
+  "Responses API",
+  "SWE-bench",
+  "rate limits",
+];
 
 function formatAge(minutes: number) {
   if (minutes < 60) return `${minutes}m`;
@@ -109,8 +119,9 @@ export default function TerminalIntelApp() {
   const [type, setType] = useState<NewsType>("All");
   const [source, setSource] = useState<SourceFilter>("All");
   const [category, setCategory] = useState<ResourceCategory>("All");
+  const [windowDays, setWindowDays] = useState(1);
   const [minScore, setMinScore] = useState(45);
-  const [query, setQuery] = useState(defaultCommand);
+  const [query, setQuery] = useState(defaultCommandForWindow(1));
   const [isPending, startTransition] = useTransition();
   const deferredQuery = useDeferredValue(query).toLowerCase();
 
@@ -124,7 +135,8 @@ export default function TerminalIntelApp() {
         if (type !== "All") params.set("type", type);
         if (category !== "All") params.set("category", category);
         if (source !== "All") params.set("source", source);
-        if (query.trim() && query !== defaultCommand) params.set("q", query);
+        params.set("windowDays", String(windowDays));
+        if (query.trim() && !isGeneratedWindowCommand(query)) params.set("q", query);
         const url = params.size > 0 ? `/api/intel?${params.toString()}` : "/api/intel";
         const response = await fetch(url, { cache: "no-store" });
         if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
@@ -139,8 +151,8 @@ export default function TerminalIntelApp() {
           setError(caught instanceof Error ? caught.message : "Could not load live intel");
           setPayload({
             generatedAt: new Date().toISOString(),
-            windowDays: 1,
-            windowHours: 24,
+            windowDays,
+            windowHours: windowDays * 24,
             liveSources: [],
             redditSubreddits: [
               "codex",
@@ -169,12 +181,13 @@ export default function TerminalIntelApp() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [category, focus, query, source, type]);
+  }, [category, focus, query, source, type, windowDays]);
 
   const items = payload?.items ?? seededItems();
   const filtered = useMemo(() => {
     const tokens = deferredQuery
       .replace(/filter:|source:|impact:|last24|reddit,hn,github/g, "")
+      .replace(/window:|last\s*\d+\s*(days?|d|h|hours?)|\b\d+d\b/g, "")
       .split(/\s+/)
       .map((part) => part.trim())
       .filter((part) => !["high", "useful", "critical", "all"].includes(part))
@@ -202,6 +215,17 @@ export default function TerminalIntelApp() {
     startTransition(() => setter(value));
   }
 
+  function updateWindowFilter(days: number) {
+    startTransition(() => {
+      setWindowDays(days);
+      setQuery((current) =>
+        isGeneratedWindowCommand(current)
+          ? defaultCommandForWindow(days)
+          : current.replace(/window:last(?:24|\d+d)/i, `window:${windowCommandToken(days)}`),
+      );
+    });
+  }
+
   return (
     <main className="min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,#113d32_0,#050807_34%,#020303_70%)] text-emerald-50">
       <div className="pointer-events-none fixed inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(132,255,198,.8)_1px,transparent_1px),linear-gradient(90deg,rgba(132,255,198,.8)_1px,transparent_1px)] [background-size:32px_32px]" />
@@ -216,7 +240,7 @@ export default function TerminalIntelApp() {
           <div className="grid grid-cols-3 gap-2 font-mono text-xs text-emerald-100">
             <div className="border border-emerald-300/20 bg-emerald-300/10 p-3">
               <span className="block text-emerald-300/60">WINDOW</span>
-              LAST {payload?.windowHours ?? 24}H
+              {formatWindowLabel(payload?.windowDays ?? windowDays).toUpperCase()}
             </div>
             <div className="border border-emerald-300/20 bg-emerald-300/10 p-3">
               <span className="block text-emerald-300/60">SIGNALS</span>
@@ -236,7 +260,7 @@ export default function TerminalIntelApp() {
               <span className={`h-2 w-2 rounded-full ${isPending ? "bg-amber-300" : "bg-emerald-300"}`} />
             </div>
             <div className="space-y-2">
-              {focusOptions.map((option) => (
+              {focusFilterOptions.map((option) => (
                 <button
                   key={option}
                   onClick={() => updateFilter(setFocus, option)}
@@ -252,9 +276,29 @@ export default function TerminalIntelApp() {
             </div>
 
             <div className="mt-6">
+              <span className="text-xs uppercase tracking-[0.32em] text-emerald-300">Window</span>
+              <div className="mt-3 grid max-h-32 grid-cols-5 gap-1 overflow-y-auto pr-1">
+                {windowDayOptions.map((days) => (
+                  <button
+                    key={days}
+                    onClick={() => updateWindowFilter(days)}
+                    className={`border px-2 py-1.5 text-center text-[11px] transition hover:border-cyan-200 hover:bg-cyan-300/10 ${
+                      windowDays === days
+                        ? "border-cyan-300 bg-cyan-300/15 text-cyan-100"
+                        : "border-emerald-300/15 text-emerald-100/65"
+                    }`}
+                    title={formatWindowLabel(days)}
+                  >
+                    {days === 1 ? "24h" : `${days}d`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-6">
               <span className="text-xs uppercase tracking-[0.32em] text-emerald-300">Type</span>
               <div className="mt-3 flex flex-wrap gap-2">
-                {typeOptions.map((option) => (
+                {newsTypeOptions.map((option) => (
                   <button
                     key={option}
                     onClick={() => updateFilter(setType, option)}
@@ -272,8 +316,8 @@ export default function TerminalIntelApp() {
 
             <div className="mt-6">
               <span className="text-xs uppercase tracking-[0.32em] text-emerald-300">Category</span>
-              <div className="mt-3 space-y-2">
-                {categoryOptions.map((option) => (
+              <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+                {resourceCategoryOptions.map((option) => (
                   <button
                     key={option}
                     onClick={() => updateFilter(setCategory, option)}
@@ -337,6 +381,9 @@ export default function TerminalIntelApp() {
                   scan:{payload?.scanMode ?? "broad"}
                 </span>
                 <span className="border border-emerald-300/15 bg-emerald-300/5 px-2 py-1">
+                  window:{formatWindowLabel(payload?.windowDays ?? windowDays).toLowerCase()}
+                </span>
+                <span className="border border-emerald-300/15 bg-emerald-300/5 px-2 py-1">
                   backend terms:{payload?.searchTerms.length ?? 0}
                 </span>
                 {(payload?.searchTerms ?? []).slice(0, 10).map((term) => (
@@ -369,6 +416,16 @@ export default function TerminalIntelApp() {
                   </h2>
                   <p className="mt-2 text-sm leading-6 text-emerald-100/68">{item.summary}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
+                    {item.usefulnessReasons.slice(0, 3).map((reason) => (
+                      <span
+                        key={reason}
+                        className="border border-amber-300/15 bg-amber-300/5 px-2 py-1 font-mono text-[11px] text-amber-100/70"
+                      >
+                        {reason}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
                     {item.tags.slice(0, 4).map((tag) => (
                       <span key={tag} className="border border-emerald-300/10 bg-emerald-300/5 px-2 py-1 font-mono text-[11px] text-emerald-100/60">
                         #{tag}
@@ -395,6 +452,21 @@ export default function TerminalIntelApp() {
                 <>
                   <h2 className="text-2xl font-black tracking-[-0.04em] text-white">{selected.title}</h2>
                   <p className="mt-3 text-sm leading-6 text-emerald-100/72">{selected.whyItMatters}</p>
+                  <div className="mt-4">
+                    <span className="font-mono text-xs uppercase tracking-[0.24em] text-emerald-300/80">
+                      Why this is ranked
+                    </span>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {selected.usefulnessReasons.map((reason) => (
+                        <span
+                          key={reason}
+                          className="border border-amber-300/15 bg-amber-300/5 px-2 py-1 font-mono text-[11px] text-amber-100/75"
+                        >
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                   <div className="mt-4 grid grid-cols-3 gap-2 font-mono text-xs">
                     <div className="border border-emerald-300/15 p-3">
                       <span className="block text-emerald-300/60">FOCUS</span>

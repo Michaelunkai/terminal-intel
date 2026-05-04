@@ -43,7 +43,22 @@ export type ResourceCategory =
   | "Local Setup"
   | "Integrations"
   | "Comparisons"
-  | "Examples";
+  | "Examples"
+  | "Desktop Apps"
+  | "Browser Use"
+  | "Computer Use"
+  | "Testing & Evals"
+  | "Cost & Rate Limits"
+  | "Rulebooks"
+  | "Videos & Demos"
+  | "Best Practices"
+  | "Packages"
+  | "Libraries"
+  | "Deployment"
+  | "Observability"
+  | "Performance"
+  | "Learning"
+  | "Communities";
 
 export type IntelItem = {
   id: string;
@@ -86,6 +101,88 @@ export type IntelFilters = {
   query?: string;
 };
 
+export const focusFilterOptions: AiFocus[] = [
+  "All",
+  "Codex",
+  "Claude",
+  "OpenAI",
+  "Anthropic",
+  "OpenClaw",
+  "Agents",
+  "DevTools",
+];
+
+export const newsTypeOptions: NewsType[] = [
+  "All",
+  "Model Releases",
+  "API Changes",
+  "Coding Agents",
+  "Benchmarks",
+  "Security",
+  "Research",
+  "Pricing",
+];
+
+export const resourceCategoryOptions: ResourceCategory[] = [
+  "All",
+  "News",
+  "Projects",
+  "Skills",
+  "Useful Tools",
+  "Useful Tricks",
+  "Guides",
+  "Prompts",
+  "Workflows",
+  "Official Docs",
+  "Release Notes",
+  "GitHub Repos",
+  "MCP Servers",
+  "Extensions",
+  "CLI Tools",
+  "Agent Setups",
+  "Automations",
+  "Templates",
+  "Troubleshooting",
+  "Local Setup",
+  "Desktop Apps",
+  "Browser Use",
+  "Computer Use",
+  "Integrations",
+  "Comparisons",
+  "Examples",
+  "Testing & Evals",
+  "Cost & Rate Limits",
+  "Rulebooks",
+  "Videos & Demos",
+  "Best Practices",
+  "Packages",
+  "Libraries",
+  "Deployment",
+  "Observability",
+  "Performance",
+  "Learning",
+  "Communities",
+];
+
+export const windowDayOptions = Array.from({ length: 30 }, (_, index) => index + 1);
+
+export function normalizeWindowDays(value: string | number | null | undefined): number {
+  const text = String(value ?? "").trim().toLowerCase();
+  const raw = typeof value === "number" ? value : Number(text.replace(/hours?|hrs?|h|days?|d/g, ""));
+  const parsed = Number.isFinite(raw) ? Math.floor(raw) : 1;
+  if (/h|hour|hr/.test(text)) return Math.min(30, Math.max(1, Math.ceil(parsed / 24)));
+  return Math.min(30, Math.max(1, parsed || 1));
+}
+
+export function windowHoursForDays(days: number): number {
+  return normalizeWindowDays(days) * 24;
+}
+
+export function formatWindowLabel(days: number): string {
+  const normalized = normalizeWindowDays(days);
+  return normalized === 1 ? "Last 24h" : `Last ${normalized} days`;
+}
+
 const focusTerms: Array<[Exclude<AiFocus, "All">, RegExp]> = [
   ["Codex", /\bcodex\b|gpt-5\.|openai-codex|codex cli/i],
   ["Claude", /\bclaude\b|anthropic|sonnet|opus|haiku/i],
@@ -108,6 +205,13 @@ const typeTerms: Array<[Exclude<NewsType, "All">, RegExp]> = [
 
 const categoryTerms: Array<[Exclude<ResourceCategory, "All">, RegExp]> = [
   ["Skills", /\bskill\b|skills|skill\.md|commands?|hooks?|workflow package/i],
+  ["Rulebooks", /agents\.md|claude\.md|rulebook|operating rules?|instructions file|harness rules?/i],
+  ["Desktop Apps", /desktop app|codex desktop|claude desktop|windows app|mac app|native app/i],
+  ["Browser Use", /browser use|computer use|browser automation|playwright|chrome extension|extension bridge/i],
+  ["Computer Use", /computer use|desktop automation|ui automation|screen automation|cua/i],
+  ["Cost & Rate Limits", /rate limits?|pricing|billing|quota|cost|token cost|subscription/i],
+  ["Testing & Evals", /test|testing|evals?|benchmark|swe-bench|leaderboard|regression/i],
+  ["Best Practices", /best practices?|recommendation|playbook/i],
   ["Prompts", /\bprompt\b|prompts|prompting|system prompt|claude\.md|agents\.md/i],
   ["Workflows", /\bworkflow\b|automation|agentic|orchestration|sub-?agent|multi-agent|pipeline/i],
   ["Troubleshooting", /troubleshoot|fix|bug|error|issue|problem|broken|workaround|debug/i],
@@ -120,12 +224,20 @@ const categoryTerms: Array<[Exclude<ResourceCategory, "All">, RegExp]> = [
   ["Official Docs", /\bofficial docs?\b|documentation|docs diff|release notes?|changelog/i],
   ["Release Notes", /\brelease notes?\b|changelog|what'?s new|version|upgrade/i],
   ["GitHub Repos", /github|repo|repository|open source/i],
+  ["Packages", /package|npm|pip|crate|sdk package|library package/i],
+  ["Libraries", /library|framework|sdk|client lib|typescript lib|python lib/i],
   ["Extensions", /extension|browser extension|vscode|chrome extension|plugin/i],
   ["CLI Tools", /\bcli\b|command line|terminal|powershell|shell/i],
   ["Agent Setups", /agent setup|subagent|multi-agent|agents\.md|claude\.md|codex config/i],
   ["Automations", /automation|automate|scheduled|cron|workflow automation|bot/i],
   ["Integrations", /integration|connector|api bridge|webhook|slack|github|telegram|browser/i],
   ["Comparisons", /compare|comparison|versus|\bvs\b|alternative|benchmark/i],
+  ["Videos & Demos", /video|demo|screencast|walkthrough video|youtube/i],
+  ["Deployment", /deploy|deployment|production|hosting|vercel|docker compose|server/i],
+  ["Observability", /logs?|monitoring|observability|telemetry|tracing|metrics|alerts?/i],
+  ["Performance", /performance|latency|speed|optimi[sz]e|throughput/i],
+  ["Learning", /learn|course|lesson|training|study path|beginner/i],
+  ["Communities", /community|discord|reddit|forum|slack|telegram group/i],
   ["Examples", /example|sample|demo|reference implementation/i],
   ["Useful Tricks", /\btrick\b|tips?|hack|cheat code|best practice|pattern|shortcut|setup/i],
   ["News", /\bnews\b|release|announc|update|breaking|launched|pricing|benchmark|security/i],
@@ -171,8 +283,49 @@ export function computeSignalScore(input: {
   const actionableBoost = usefulActionTerms(input.title).length * 4;
   const focusBoost = input.selectedFocus !== "All" && input.focus === input.selectedFocus ? 12 : 0;
   const categoryBoost = input.selectedCategory !== "All" && input.category === input.selectedCategory ? 10 : 0;
+  const exactFocusMatched = Boolean(
+    input.selectedFocus !== "All" &&
+      input.selectedFocus &&
+      focusSearchTerms[input.selectedFocus]?.some((term) => includesTerm(input.title, term)),
+  );
+  const exactCategoryMatched = Boolean(
+    input.selectedCategory !== "All" &&
+      input.selectedCategory &&
+      categorySearchTerms[input.selectedCategory]?.some((term) => includesTerm(input.title, term)),
+  );
+  const exactFocusTextBoost = exactFocusMatched ? 8 : 0;
+  const exactCategoryTextBoost = exactCategoryMatched ? 6 : 0;
+  const focusMissPenalty =
+    input.selectedFocus !== "All" && input.selectedFocus && input.focus !== input.selectedFocus && !exactFocusMatched ? 24 : 0;
+  const categoryMissPenalty =
+    input.selectedCategory !== "All" &&
+    input.selectedCategory &&
+    input.category !== input.selectedCategory &&
+    !exactCategoryMatched
+      ? 18
+      : 0;
+  const lowSignalPenalty = /sucks|rant|shitpost|meme|joke|drama|low effort/i.test(input.title) ? 16 : 0;
 
-  return Math.min(99, Math.round(recency + engagement + sourceWeight + criticalBoost + actionableBoost + focusBoost + categoryBoost));
+  return Math.min(
+    99,
+    Math.round(
+      Math.max(
+        1,
+        recency +
+          engagement +
+          sourceWeight +
+          criticalBoost +
+          actionableBoost +
+          focusBoost +
+          categoryBoost +
+          exactFocusTextBoost +
+          exactCategoryTextBoost -
+          focusMissPenalty -
+          categoryMissPenalty -
+          lowSignalPenalty,
+      ),
+    ),
+  );
 }
 
 export function signalFromScore(score: number): IntelItem["signal"] {
@@ -199,6 +352,9 @@ export function usefulActionTerms(text: string): string[] {
     ["fix or troubleshooting value", /fix|bug|error|issue|workaround|troubleshoot|debug/i],
     ["official or release signal", /official|docs|documentation|release notes?|changelog|version/i],
     ["local setup value", /local|self-host|selfhosted|install|desktop|windows|docker|ollama/i],
+    ["eval or test value", /test|testing|eval|benchmark|swe-bench|leaderboard/i],
+    ["cost or limits value", /rate limits?|pricing|billing|quota|cost/i],
+    ["browser or desktop value", /browser use|computer use|desktop app|codex desktop|claude desktop/i],
   ];
 
   return checks.filter(([, pattern]) => pattern.test(text)).map(([label]) => label);
@@ -319,6 +475,21 @@ const categorySearchTerms: Record<Exclude<ResourceCategory, "All">, string[]> = 
   Integrations: ["integration", "connector", "webhook", "github", "slack", "telegram", "browser"],
   Comparisons: ["comparison", "compare", "versus", "vs", "alternative", "benchmark"],
   Examples: ["example", "sample", "demo", "reference", "case study"],
+  "Desktop Apps": ["desktop app", "codex desktop", "claude desktop", "windows app", "mac app", "native app"],
+  "Browser Use": ["browser use", "computer use", "browser automation", "playwright", "chrome extension"],
+  "Computer Use": ["computer use", "desktop automation", "ui automation", "screen automation", "cua"],
+  "Testing & Evals": ["testing", "evals", "benchmark", "swe-bench", "leaderboard", "regression test"],
+  "Cost & Rate Limits": ["rate limits", "pricing", "billing", "quota", "cost", "token cost"],
+  Rulebooks: ["agents.md", "claude.md", "rulebook", "operating rules", "instructions file", "codex harness"],
+  "Videos & Demos": ["video", "demo", "screencast", "youtube", "walkthrough video"],
+  "Best Practices": ["best practices", "patterns", "playbook", "recommended setup", "lessons learned"],
+  Packages: ["package", "npm", "pip", "crate", "sdk package", "client package"],
+  Libraries: ["library", "framework", "sdk", "client lib", "typescript library", "python library"],
+  Deployment: ["deployment", "deploy", "production", "hosting", "vercel", "docker compose"],
+  Observability: ["logs", "monitoring", "observability", "telemetry", "metrics", "alerts"],
+  Performance: ["performance", "latency", "speed", "optimization", "throughput"],
+  Learning: ["learn", "course", "lesson", "training", "study path", "beginner"],
+  Communities: ["community", "discord", "reddit", "forum", "telegram group", "slack"],
 };
 
 const typeSearchTerms: Record<Exclude<NewsType, "All">, string[]> = {
@@ -366,6 +537,11 @@ export const defaultQueries = [
   "ai guide",
   "ai coding agent",
   "openai api",
+  "codex desktop windows",
+  "browser use computer use",
+  "agents.md rulebook",
+  "ai evals testing",
+  "ai rate limits pricing",
 ];
 
 export function isTargetedScan(filters: IntelFilters): boolean {
@@ -385,7 +561,11 @@ export function searchTermsForFilters(filters: IntelFilters): string[] {
   const typedTerms = filters.query
     ?.split(/[,\s]+/)
     .map((term) => term.trim())
-    .filter((term) => term.length > 2 && !/^(filter:|source:|impact:|last24|all|high)$/i.test(term));
+    .filter(
+      (term) =>
+        term.length > 2 &&
+        !/^(filter:|source:|impact:|window:|window:last\d+d?|window:last24|last24|last\d+d?|all|high)$/i.test(term),
+    );
 
   const pairedFocusCategory =
     focusTerms.length > 0 && categoryTerms.length > 0
@@ -411,6 +591,10 @@ export function searchTermsForFilters(filters: IntelFilters): string[] {
 
   const unique = Array.from(new Set(terms.map((term) => term.trim()).filter(Boolean)));
   return unique.length > 0 ? unique.slice(0, 36) : fallback;
+}
+
+function includesTerm(text: string, term: string): boolean {
+  return text.toLowerCase().includes(term.toLowerCase());
 }
 
 export function applySelectedFilterLabels(item: IntelItem, filters: IntelFilters): IntelItem {

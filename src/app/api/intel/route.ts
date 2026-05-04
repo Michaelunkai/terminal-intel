@@ -6,53 +6,30 @@ import {
   classifyFocus,
   classifyType,
   computeSignalScore,
+  focusFilterOptions,
   isTargetedScan,
+  newsTypeOptions,
+  normalizeWindowDays,
   redditSourceSubreddits,
+  resourceCategoryOptions,
   searchTermsForFilters,
   signalFromScore,
   summarize,
   usefulnessReasonsForItem,
   whyItMatters,
-  type AiFocus,
   type IntelFilters,
   type IntelItem,
   type IntelResponse,
   type IntelSource,
-  type NewsType,
-  type ResourceCategory,
 } from "@/lib/intel";
 
 export const dynamic = "force-dynamic";
 
-const WINDOW_HOURS = 24;
-const WINDOW_DAYS = WINDOW_HOURS / 24;
 const headers = {
   "User-Agent": "TerminalIntelAINews/0.1 by local-dev",
   Accept: "application/json",
 };
 
-const focusValues: AiFocus[] = ["All", "Codex", "Claude", "OpenAI", "Anthropic", "Agents", "DevTools"];
-const typeValues: NewsType[] = [
-  "All",
-  "Model Releases",
-  "API Changes",
-  "Coding Agents",
-  "Benchmarks",
-  "Security",
-  "Research",
-  "Pricing",
-];
-const categoryValues: ResourceCategory[] = [
-  "All",
-  "News",
-  "Projects",
-  "Skills",
-  "Useful Tools",
-  "Useful Tricks",
-  "Guides",
-  "Prompts",
-  "Workflows",
-];
 const sourceValues: Array<"All" | IntelSource> = ["All", "Reddit", "Hacker News", "GitHub", "Curated"];
 
 function enumParam<T extends string>(params: URLSearchParams, name: string, values: readonly T[], fallback: T): T {
@@ -64,11 +41,11 @@ function filtersFromRequest(request: Request): IntelFilters {
   const params = new URL(request.url).searchParams;
 
   return {
-    focus: enumParam(params, "focus", focusValues, "All"),
-    type: enumParam(params, "type", typeValues, "All"),
-    category: enumParam(params, "category", categoryValues, "All"),
+    focus: enumParam(params, "focus", focusFilterOptions, "All"),
+    type: enumParam(params, "type", newsTypeOptions, "All"),
+    category: enumParam(params, "category", resourceCategoryOptions, "All"),
     source: enumParam(params, "source", sourceValues, "All"),
-    windowDays: WINDOW_DAYS,
+    windowDays: normalizeWindowDays(params.get("windowDays")),
     query: params.get("q") ?? undefined,
   };
 }
@@ -94,6 +71,12 @@ function redditQuery(terms: string[]): string {
     .join(" OR ");
 }
 
+function redditTimeRange(windowDays: number): "day" | "week" | "month" {
+  if (windowDays <= 1) return "day";
+  if (windowDays <= 7) return "week";
+  return "month";
+}
+
 type RedditChild = {
   data: {
     id: string;
@@ -109,10 +92,12 @@ type RedditChild = {
 };
 
 async function redditSignals(now: Date, terms: string[], filters: IntelFilters): Promise<IntelItem[]> {
-  const after = Math.floor((now.getTime() - WINDOW_HOURS * 60 * 60 * 1000) / 1000);
+  const after = Math.floor((now.getTime() - filters.windowDays * 24 * 60 * 60 * 1000) / 1000);
   const query = encodeURIComponent(redditQuery(terms));
+  const timeRange = redditTimeRange(filters.windowDays);
+  const limit = filters.windowDays > 7 ? 50 : 35;
   const urls = redditSourceSubreddits.map((subreddit) => {
-    return `https://www.reddit.com/r/${subreddit}/search.json?q=${query}&restrict_sr=1&sort=new&t=day&limit=25`;
+    return `https://www.reddit.com/r/${subreddit}/search.json?q=${query}&restrict_sr=1&sort=new&t=${timeRange}&limit=${limit}`;
   });
   const results = await Promise.allSettled(
     urls.map((url) => fetchJson<{ data: { children: RedditChild[] } }>(url)),
@@ -136,6 +121,11 @@ async function redditSignals(now: Date, terms: string[], filters: IntelFilters):
           score: child.data.score,
           comments: child.data.num_comments,
           title: child.data.title,
+          focus,
+          category,
+          selectedFocus: filters.focus,
+          selectedCategory: filters.category,
+          windowDays: filters.windowDays,
         });
 
         const item = {
@@ -185,8 +175,8 @@ type HnHit = {
 };
 
 async function hackerNewsSignals(now: Date, terms: string[], filters: IntelFilters): Promise<IntelItem[]> {
-  const unixAfter = Math.floor((now.getTime() - WINDOW_HOURS * 60 * 60 * 1000) / 1000);
-  const queries = terms.slice(0, 14);
+  const unixAfter = Math.floor((now.getTime() - filters.windowDays * 24 * 60 * 60 * 1000) / 1000);
+  const queries = terms.slice(0, filters.windowDays > 7 ? 18 : 14);
   const results = await Promise.allSettled(
     queries.map((query) =>
       fetchJson<{ hits: HnHit[] }>(
@@ -213,6 +203,11 @@ async function hackerNewsSignals(now: Date, terms: string[], filters: IntelFilte
         score: hit.points ?? 0,
         comments: hit.num_comments ?? 0,
         title,
+        focus,
+        category,
+        selectedFocus: filters.focus,
+        selectedCategory: filters.category,
+        windowDays: filters.windowDays,
       });
 
       const item = {
@@ -261,13 +256,13 @@ type GitHubRepo = {
 };
 
 async function githubSignals(now: Date, terms: string[], filters: IntelFilters): Promise<IntelItem[]> {
-  const date = new Date(now.getTime() - WINDOW_HOURS * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const date = new Date(now.getTime() - filters.windowDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const results = await Promise.allSettled(
-    terms.slice(0, 8).map((term) =>
+    terms.slice(0, filters.windowDays > 7 ? 12 : 8).map((term) =>
       fetchJson<{ items: GitHubRepo[] }>(
         `https://api.github.com/search/repositories?q=${encodeURIComponent(
           `${term} pushed:>${date}`,
-        )}&sort=updated&order=desc&per_page=10`,
+        )}&sort=updated&order=desc&per_page=${filters.windowDays > 7 ? 15 : 10}`,
       ),
     ),
   );
@@ -288,6 +283,11 @@ async function githubSignals(now: Date, terms: string[], filters: IntelFilters):
         score: repo.stargazers_count,
         comments: repo.open_issues_count,
         title,
+        focus,
+        category,
+        selectedFocus: filters.focus,
+        selectedCategory: filters.category,
+        windowDays: filters.windowDays,
       });
 
       const item = {
@@ -367,14 +367,14 @@ export async function GET(request: Request) {
 
   const payload: IntelResponse = {
     generatedAt: now.toISOString(),
-    windowDays: WINDOW_DAYS,
-    windowHours: WINDOW_HOURS,
+    windowDays: filters.windowDays,
+    windowHours: filters.windowDays * 24,
     liveSources,
     redditSubreddits: redditSourceSubreddits,
     searchTerms: terms,
     scanMode: targeted ? "targeted" : "broad",
     sourceErrors,
-    items: uniqueSorted(items, targeted ? 160 : 80),
+    items: uniqueSorted(items, targeted ? (filters.windowDays > 7 ? 220 : 160) : filters.windowDays > 7 ? 120 : 80),
   };
 
   return NextResponse.json(payload);
